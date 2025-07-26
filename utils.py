@@ -16,41 +16,50 @@ COLOR_PALETTE = [
     RGBColor(23,190,207),
 ]
 
-def safe_get_categories(chart):
-    try:
-        return [pt.label for pt in chart.plots[0].categories]
-    except Exception:
-        return [f"Category {i+1}" for i in range(len(chart.series[0].values))]
+SUPPORTED_TYPES = {
+    XL_CHART_TYPE.BAR_CLUSTERED,
+    XL_CHART_TYPE.COLUMN_CLUSTERED,
+    XL_CHART_TYPE.LINE,
+    XL_CHART_TYPE.AREA
+    # You can add more types here
+}
 
 def safe_get_values(series):
     try:
-        return [v for v in series.values]
-    except Exception:
+        return [v for v in series.values if v is not None]
+    except:
         return []
 
 def process_pptx(path_in, seg_count, seg_names):
     prs = Presentation(path_in)
     color_map = COLOR_PALETTE[:seg_count]
 
-    for slide in prs.slides:
-        for shape in slide.shapes:
+    for slide_index, slide in enumerate(prs.slides):
+        for shape_index, shape in enumerate(slide.shapes):
             if not shape.has_chart:
                 continue
 
             chart = shape.chart
+            chart_type = chart.chart_type
 
-            # Only process charts with at least one series and category
-            if not chart.series:
-                continue
+            if chart_type not in SUPPORTED_TYPES:
+                continue  # Skip unsupported charts for now
 
             try:
-                categories = safe_get_categories(chart)
-                original_values = safe_get_values(chart.series[0])
-
-                if not original_values or not categories:
+                series = chart.series
+                if not series:
                     continue
 
-                # New data with duplicated values for segments
+                categories = [pt.label for pt in chart.plots[0].categories]
+                original_values = safe_get_values(series[0])
+
+                if not categories or not original_values:
+                    continue
+
+                # If category count and value count mismatch, skip
+                if len(categories) != len(original_values):
+                    continue
+
                 new_data = ChartData()
                 new_data.categories = categories
 
@@ -59,16 +68,16 @@ def process_pptx(path_in, seg_count, seg_names):
 
                 chart.replace_data(new_data)
 
-                # Update series name and color
-                for idx, series in enumerate(chart.series):
-                    fill = series.format.fill
+                # Update series colors and names
+                for idx, s in enumerate(chart.series):
+                    s.name = seg_names[idx]
+                    fill = s.format.fill
                     fill.solid()
                     fill.fore_color.rgb = color_map[idx % len(color_map)]
-                    series.name = seg_names[idx]
 
             except Exception as e:
-                print(f"Skipping chart due to error: {e}")
-                continue  # Move to next chart safely
+                print(f"Error processing slide {slide_index}, shape {shape_index}: {e}")
+                continue
 
     output_path = path_in.replace(".pptx", "_segmented.pptx")
     prs.save(output_path)
