@@ -4,24 +4,16 @@ from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE
 
 COLOR_PALETTE = [
-    RGBColor(31,119,180),
-    RGBColor(255,127,14),
-    RGBColor(44,160,44),
-    RGBColor(214,39,40),
-    RGBColor(148,103,189),
-    RGBColor(140,86,75),
-    RGBColor(227,119,194),
-    RGBColor(127,127,127),
-    RGBColor(188,189,34),
-    RGBColor(23,190,207),
+    RGBColor(31, 119, 180),  # blue
+    RGBColor(255, 127, 14),  # orange
+    RGBColor(44, 160, 44),   # green
+    RGBColor(214, 39, 40),   # red
+    RGBColor(148, 103, 189), # purple
 ]
 
 SUPPORTED_TYPES = {
     XL_CHART_TYPE.BAR_CLUSTERED,
-    XL_CHART_TYPE.COLUMN_CLUSTERED,
-    XL_CHART_TYPE.LINE,
-    XL_CHART_TYPE.AREA
-    # You can add more types here
+    XL_CHART_TYPE.BAR_STACKED,
 }
 
 def safe_get_values(series):
@@ -40,43 +32,43 @@ def process_pptx(path_in, seg_count, seg_names):
                 continue
 
             chart = shape.chart
-            chart_type = chart.chart_type
-
-            if chart_type not in SUPPORTED_TYPES:
-                continue  # Skip unsupported charts for now
+            if chart.chart_type not in SUPPORTED_TYPES:
+                continue  # Skip unsupported chart types
 
             try:
-                series = chart.series
-                if not series:
-                    continue
-
                 categories = [pt.label for pt in chart.plots[0].categories]
-                original_values = safe_get_values(series[0])
-
-                if not categories or not original_values:
-                    continue
-
-                # If category count and value count mismatch, skip
-                if len(categories) != len(original_values):
+                original_series = chart.series
+                if not original_series:
                     continue
 
                 new_data = ChartData()
                 new_data.categories = categories
 
-                for i in range(seg_count):
-                    new_data.add_series(seg_names[i], original_values)
+                for original_series_index, series in enumerate(original_series):
+                    original_name = series.name
+                    original_values = safe_get_values(series)
+                    if not original_values:
+                        continue
+
+                    # Create seg_count new series per original
+                    for seg_index in range(seg_count):
+                        seg_name = f"{original_name} - {seg_names[seg_index]}"
+                        seg_values = original_values  # Use same values for all segments
+                        new_data.add_series(seg_name, seg_values)
 
                 chart.replace_data(new_data)
 
-                # Update series colors and names
-                for idx, s in enumerate(chart.series):
-                    s.name = seg_names[idx]
-                    fill = s.format.fill
+                # Set colors (each seg_index across series)
+                new_series = chart.series
+                for idx, series in enumerate(new_series):
+                    color_idx = idx % seg_count  # So colors repeat per segment
+                    series.name = new_data.series[idx][0]  # Set name
+                    fill = series.format.fill
                     fill.solid()
-                    fill.fore_color.rgb = color_map[idx % len(color_map)]
+                    fill.fore_color.rgb = color_map[color_idx]
 
             except Exception as e:
-                print(f"Error processing slide {slide_index}, shape {shape_index}: {e}")
+                print(f"Error on slide {slide_index} shape {shape_index}: {e}")
                 continue
 
     output_path = path_in.replace(".pptx", "_segmented.pptx")
